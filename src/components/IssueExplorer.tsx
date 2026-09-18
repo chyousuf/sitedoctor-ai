@@ -11,6 +11,9 @@ import {
   ChevronUp,
   Sparkles,
   CheckCircle,
+  Globe,
+  Loader2,
+  ShieldCheck,
 } from "lucide-react";
 
 interface IssueExplorerProps {
@@ -24,6 +27,35 @@ export function IssueExplorer({ findings, onRefresh }: IssueExplorerProps) {
   const [onlyRepairable, setOnlyRepairable] = useState<boolean>(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeRepairFinding, setActiveRepairFinding] = useState<any | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyNotice, setVerifyNotice] = useState<{ id: string; success: boolean; msg: string } | null>(null);
+
+  const handleQuickVerify = async (findingId: string) => {
+    try {
+      setVerifyingId(findingId);
+      setVerifyNotice(null);
+      const res = await fetch("/api/audits/verify-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ findingId }),
+      });
+      const data = await res.json();
+      setVerifyNotice({
+        id: findingId,
+        success: !!data.verified,
+        msg: data.message || (data.verified ? "Verified on live site!" : "Not found on live site."),
+      });
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setVerifyNotice({
+        id: findingId,
+        success: false,
+        msg: err.message || "Failed to verify live website.",
+      });
+    } finally {
+      setVerifyingId(null);
+    }
+  };
 
   const categories = [
     { id: "all", label: "All Categories" },
@@ -142,6 +174,16 @@ export function IssueExplorer({ findings, onRefresh }: IssueExplorerProps) {
                         >
                           {finding.severity}
                         </span>
+                        {finding.workflowStatus === "verified_live" && (
+                          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3 text-emerald-400" /> Verified on Live Site
+                          </span>
+                        )}
+                        {finding.workflowStatus === "staged" && (
+                          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800 flex items-center gap-1">
+                            <ShieldCheck className="h-3 w-3 text-amber-400" /> Staged (Pending Push)
+                          </span>
+                        )}
                         {finding.workflowStatus === "fixed" && (
                           <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1">
                             <CheckCircle className="h-3 w-3" /> Fixed
@@ -154,17 +196,44 @@ export function IssueExplorer({ findings, onRefresh }: IssueExplorerProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
-                    {finding.repairSupported && finding.workflowStatus !== "fixed" && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleQuickVerify(finding.id);
+                      }}
+                      disabled={verifyingId === finding.id}
+                      className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors"
+                      title="Ping live website to verify whether this issue is fixed"
+                    >
+                      {verifyingId === finding.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-400" />
+                      ) : (
+                        <Globe className="h-3.5 w-3.5 text-brand-400" />
+                      )}
+                      <span>Verify Live</span>
+                    </button>
+
+                    {finding.repairSupported && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveRepairFinding(finding);
                         }}
-                        className="flex items-center gap-1.5 bg-brand-600/20 hover:bg-brand-600/30 text-brand-300 border border-brand-500/40 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+                          finding.workflowStatus === "verified_live"
+                            ? "bg-slate-800 text-slate-400 border border-slate-700"
+                            : "bg-brand-600/20 hover:bg-brand-600/30 text-brand-300 border border-brand-500/40"
+                        }`}
                       >
                         <Wrench className="h-3.5 w-3.5" />
-                        <span>Fix with AI</span>
+                        <span>
+                          {finding.workflowStatus === "verified_live"
+                            ? "View Fix"
+                            : finding.workflowStatus === "staged"
+                            ? "Deploy / View"
+                            : "Fix with AI"}
+                        </span>
                       </button>
                     )}
                     <button className="text-slate-500 hover:text-white">
@@ -176,6 +245,35 @@ export function IssueExplorer({ findings, onRefresh }: IssueExplorerProps) {
                     </button>
                   </div>
                 </div>
+
+                {/* Inline Live Verification Notice Banner */}
+                {verifyNotice && verifyNotice.id === finding.id && (
+                  <div
+                    className={`px-4 py-2.5 text-xs flex items-center justify-between border-t ${
+                      verifyNotice.success
+                        ? "bg-emerald-950/70 text-emerald-200 border-emerald-800"
+                        : "bg-amber-950/70 text-amber-200 border-amber-800"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {verifyNotice.success ? (
+                        <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                      )}
+                      <span>{verifyNotice.msg}</span>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setVerifyNotice(null);
+                      }}
+                      className="text-slate-400 hover:text-white ml-2 text-sm"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
 
                 {/* Expanded Details */}
                 {isExpanded && (
