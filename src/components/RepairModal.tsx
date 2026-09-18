@@ -49,6 +49,8 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
   const [ftpUser, setFtpUser] = useState("");
   const [ftpPassword, setFtpPassword] = useState("");
   const [ftpRemoteDir, setFtpRemoteDir] = useState("/htdocs");
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Generate proposal on mount
   useEffect(() => {
@@ -131,6 +133,37 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
       setLiveVerificationResult({ verified: false, message: err.message });
     } finally {
       setIsVerifyingLive(false);
+    }
+  };
+
+  // Test FTP connection before applying
+  const handleTestConnection = async () => {
+    try {
+      setIsTestingConnection(true);
+      setConnectionTestResult(null);
+      const res = await fetch("/api/connections/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: ftpHost,
+          port: ftpPort,
+          username: ftpUser,
+          password: ftpPassword,
+          remoteDir: ftpRemoteDir,
+        }),
+      });
+      const data = await res.json();
+      setConnectionTestResult({
+        ok: !!data.ok,
+        message: data.message || data.error || (data.ok ? "Connection successful" : "Failed to connect"),
+      });
+    } catch (err: any) {
+      setConnectionTestResult({
+        ok: false,
+        message: err.message || "Failed to reach test connection endpoint",
+      });
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -504,11 +537,50 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                       </div>
                     </div>
 
-                    <div className="pt-2">
+                    {/* Connection Test Result Banner */}
+                    {connectionTestResult && (
+                      <div
+                        className={`rounded-xl p-3 text-xs border ${
+                          connectionTestResult.ok
+                            ? "bg-emerald-950/50 border-emerald-800 text-emerald-200"
+                            : "bg-rose-950/50 border-rose-800 text-rose-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {connectionTestResult.ok ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                          )}
+                          <span>{connectionTestResult.message}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={handleTestConnection}
+                        disabled={isTestingConnection || !ftpHost || !ftpUser}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-semibold px-4 py-3 rounded-xl border border-slate-700 transition-colors"
+                      >
+                        {isTestingConnection ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin text-brand-400" />
+                            <span>Testing Connection...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 text-brand-400" />
+                            <span>Test FTP Connection</span>
+                          </>
+                        )}
+                      </button>
+
                       <button
                         onClick={() => handleApproveAndApply(true)}
                         disabled={!ftpHost || !ftpUser}
-                        className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-xs font-bold px-5 py-3 rounded-xl shadow-lg shadow-brand-950/40 transition-all"
+                        className="flex-1 w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-xs font-bold px-5 py-3 rounded-xl shadow-lg shadow-brand-950/40 transition-all"
                       >
                         <Server className="h-4 w-4" />
                         <span>Deploy Directly to Remote Host (With Automated Backup)</span>

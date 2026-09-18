@@ -18,8 +18,9 @@ describe("Credential Vault & Secret Redactor", () => {
     const rawSecret = "api-token-test";
     const encrypted = encryptCredential(rawSecret);
     const parts = encrypted.split(":");
-    // Tamper with data segment
-    parts[4] = parts[4].slice(0, -2) + "00";
+    // Tamper with data segment (guaranteed character flip)
+    const lastChar = parts[4].slice(-1);
+    parts[4] = parts[4].slice(0, -1) + (lastChar === "0" ? "1" : "0");
     const tampered = parts.join(":");
 
     expect(() => decryptCredential(tampered)).toThrow();
