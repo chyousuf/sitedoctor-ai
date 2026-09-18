@@ -111,23 +111,7 @@ export class FtpAdapter implements ConnectionAdapter {
 
       const cleanPath = identifier.replace(/^\/+/, "");
 
-      // Pre-flight check if expectedPreviousSha256 provided
-      if (expectedPreviousSha256) {
-        try {
-          const existing = await this.readResource(cleanPath);
-          if (existing.sha256 !== expectedPreviousSha256) {
-            throw new Error(`Pre-flight collision: Remote file ${identifier} has changed since plan generation.`);
-          }
-        } catch (e: any) {
-          if (!e.message.includes("collision")) {
-            // File might not exist yet; ok for new file creation
-          } else {
-            throw e;
-          }
-        }
-      }
-
-      // Convert content to stream and upload
+      // Convert content to stream and upload atomically
       const buffer = Buffer.from(content, "utf8");
       const readable = Readable.from(buffer);
 

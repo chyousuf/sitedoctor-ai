@@ -167,6 +167,38 @@ export interface SafeFetchOptions extends RequestInit {
   maxResponseSizeBytes?: number;
 }
 
+import crypto from "node:crypto";
+
+function trySolveByetHostCookie(html: string): string | null {
+  const match = html.match(
+    /toNumbers\("([0-9a-fA-F]+)"\)[^"]*toNumbers\("([0-9a-fA-F]+)"\)[^"]*toNumbers\("([0-9a-fA-F]+)"\)/
+  );
+  if (!match) return null;
+
+  const toBuffer = (hex: string) => {
+    const bytes: number[] = [];
+    hex.replace(/(..)/g, (byte) => {
+      bytes.push(parseInt(byte, 16));
+      return "";
+    });
+    return Buffer.from(bytes);
+  };
+
+  const a = toBuffer(match[1]);
+  const b = toBuffer(match[2]);
+  const c = toBuffer(match[3]);
+
+  try {
+    const decipher = crypto.createDecipheriv("aes-128-cbc", a, b);
+    decipher.setAutoPadding(false);
+    let decrypted = decipher.update(c);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString("hex");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * SSRF-Safe HTTP fetch that follows redirects safely, re-validating each hop against SSRF rules.
  */
@@ -235,6 +267,27 @@ export async function safeFetch(
       throw new Error(
         `Response size ${contentLength} bytes exceeds limit of ${maxResponseSizeBytes} bytes.`
       );
+    }
+
+    // Check if response is a free-host bot protection challenge (e.g. ByetHost / InfinityFree aes.js)
+    const contentType = res.headers.get("content-type") || "";
+    if (res.status === 200 && contentType.includes("text/html")) {
+      const bodyClone = res.clone();
+      const bodyText = await bodyClone.text();
+      if (bodyText.includes("/aes.js") && bodyText.includes("slowAES.decrypt")) {
+        const testCookie = trySolveByetHostCookie(bodyText);
+        if (testCookie) {
+          // Re-fetch with the computed __test cookie
+          const cookieHeader = options.headers
+            ? { ...options.headers, Cookie: `__test=${testCookie}` }
+            : { Cookie: `__test=${testCookie}` };
+
+          return safeFetch(currentUrl, {
+            ...options,
+            headers: cookieHeader,
+          });
+        }
+      }
     }
 
     return { response: res, finalUrl: currentUrl, hops };

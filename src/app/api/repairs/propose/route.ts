@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { AiRepairGenerator } from "@/lib/ai/repair-generator";
 import { computeSha256 } from "@/lib/security/vault";
 import { computeImmutablePlanHash } from "@/lib/repairs/state-machine";
+import { safeFetch } from "@/lib/security/ssrf";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,9 +27,27 @@ export async function POST(req: NextRequest) {
     }
 
     const targetResource = resourceIdentifier || "index.html";
-    const sampleContent =
-      rawSnippet ||
-      `<!DOCTYPE html>
+    let sampleContent = rawSnippet || "";
+
+    if (!sampleContent && finding.affectedUrl) {
+      try {
+        const fetchResult = await safeFetch(finding.affectedUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 SiteDoctorAI/1.0",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+        });
+        if (fetchResult.response.ok) {
+          sampleContent = await fetchResult.response.text();
+        }
+      } catch (e: any) {
+        console.warn("Could not fetch live HTML for proposal baseline, using template fallback:", e?.message);
+      }
+    }
+
+    if (!sampleContent) {
+      sampleContent = `<!DOCTYPE html>
 <html>
 <head>
   <!-- Missing metadata here -->
@@ -38,6 +57,7 @@ export async function POST(req: NextRequest) {
   <p>Content without description or schema.</p>
 </body>
 </html>`;
+    }
 
     const generator = new AiRepairGenerator();
     const { proposal, metadata, fullUnifiedDiff, simulatedAfterContent } = await generator.generateProposal({

@@ -6,6 +6,9 @@ import { RepairEngine } from "@/lib/repairs/repair-engine";
 import { StaticAdapter } from "@/lib/adapters/static-adapter";
 import { FtpAdapter } from "@/lib/adapters/ftp-adapter";
 import { ConnectionAdapter } from "@/lib/adapters/types";
+import { safeFetch } from "@/lib/security/ssrf";
+import { extractPageData } from "@/lib/crawler/link-graph";
+import { evaluateAllRules } from "@/lib/rules/registry";
 
 export async function POST(req: NextRequest) {
   try {
@@ -110,6 +113,7 @@ export async function POST(req: NextRequest) {
       })),
       targetUrl,
       ruleId,
+      semanticMergeOnConflict: isLiveFtp,
     });
 
     // Save backup snapshot in DB
@@ -154,13 +158,53 @@ export async function POST(req: NextRequest) {
     // Determine workflow status:
     // If deployed via FTP to live server -> mark verified_live
     // If local staging sandbox -> mark staged (never claim live site was modified!)
-    const targetStatus = isLiveFtp ? "verified_live" : "staged";
+    let targetStatus = isLiveFtp ? "verified_live" : "staged";
+    let liveVerifiedOnHttp = false;
+
+    if (isLiveFtp) {
+      try {
+        const liveRes = await safeFetch(targetUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 SiteDoctorAI/1.0",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+        });
+        if (liveRes.response.ok) {
+          const liveHtml = await liveRes.response.text();
+          let rootDomain = "example.com";
+          try {
+            rootDomain = new URL(targetUrl).hostname;
+          } catch {}
+          const pageData = extractPageData(liveHtml, liveRes.finalUrl, rootDomain);
+          const liveResults = evaluateAllRules({
+            pageUrl: targetUrl,
+            httpStatus: liveRes.response.status,
+            responseTimeMs: 200,
+            mimeType: "text/html",
+            redirectHops: liveRes.hops,
+            finalUrl: liveRes.finalUrl,
+            rawHtml: liveHtml,
+            data: pageData,
+          });
+          const ruleMatch = liveResults.find((r) => r.ruleId === ruleId);
+          if (ruleMatch && ruleMatch.state === "passed") {
+            liveVerifiedOnHttp = true;
+          }
+        }
+      } catch (err: any) {
+        console.warn("Live HTTP verification check warning:", err?.message);
+      }
+    }
 
     for (const p of plan.patches) {
       if (p.findingId) {
         await db.ruleFinding.update({
           where: { id: p.findingId },
-          data: { workflowStatus: targetStatus },
+          data: {
+            workflowStatus: targetStatus,
+            ...(liveVerifiedOnHttp ? { ruleState: "passed" } : {}),
+          },
         });
       }
     }
@@ -171,10 +215,13 @@ export async function POST(req: NextRequest) {
       backupId: backupRecord.id,
       isLiveFtp,
       workflowStatus: targetStatus,
+      liveVerifiedOnHttp,
       verification: result.verification,
       logs: result.logs,
       message: isLiveFtp
-        ? "Successfully pushed repair to live remote server and verified!"
+        ? liveVerifiedOnHttp
+          ? "Successfully pushed to live remote server and verified live over HTTP!"
+          : "Successfully pushed repair to live remote server with automated backup snapshot!"
         : "Repair safely staged in local sandbox. To apply to your live website, use the FTP Deploy tab or Copy/Download implementation file.",
     });
   } catch (err: any) {
