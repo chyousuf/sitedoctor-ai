@@ -140,6 +140,9 @@ export class AiProviderService {
         precautions: ["Verify CSS styles respond well on mobile viewports."],
       };
     } else if (prompt.includes("CRAWL_CANONICAL_PRESENT")) {
+      const urlMatch = prompt.match(/Affected URL:\s*(https?:\/\/[^\s\n\r"']+)/i);
+      const canonicalTarget = urlMatch ? urlMatch[1] : "https://example.com/";
+
       mockResponse = {
         title: "Add Authoritative Canonical Link",
         explanation: "Configures self-referential canonical URL to prevent parameter duplicate indexing.",
@@ -152,7 +155,7 @@ export class AiProviderService {
             targetResource: "index.html",
             operation: "add_canonical",
             beforeSnippet: "<head>",
-            afterSnippet: '<head>\n  <link rel="canonical" href="https://example.com/">',
+            afterSnippet: `<head>\n  <link rel="canonical" href="${canonicalTarget}">`,
             explanation: "Injects canonical link tag in <head>.",
           },
         ],

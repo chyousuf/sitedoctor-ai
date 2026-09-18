@@ -42,6 +42,7 @@ CRITICAL SECURITY RULES:
 Rule ID: ${input.finding.ruleId}
 Title: ${input.finding.title}
 Category: ${input.finding.category}
+Affected URL: ${input.finding.affectedUrl}
 Observed Value: ${input.finding.observedValue || "N/A"}
 Expected Value: ${input.finding.expectedValue || "N/A"}
 Evidence Snippet: ${input.finding.evidenceSnippet || "N/A"}
