@@ -1,0 +1,37 @@
+# Node & dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing & Coverage
+coverage/
+
+# Next.js build
+.next/
+out/
+build/
+dist/
+
+# SQLite & local development databases
+*.db
+*.db-journal
+
+# Environment variables
+.env*.local
+.env
+
+# Storage and temporary test directories
+storage/backups/*
+storage/site-roots/*
+!storage/backups/.gitkeep
+!storage/site-roots/.gitkeep
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS Files
+.DS_Store
+*.pem

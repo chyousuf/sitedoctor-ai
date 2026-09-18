@@ -1,0 +1,314 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  plan        String       @default("pro") // guest, starter, pro, agency
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  members     Membership[]
+  projects    Project[]
+  auditEvents AuditEvent[]
+}
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  passwordHash  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  memberships   Membership[]
+  auditEvents   AuditEvent[]
+  approvals     Approval[]
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  role           String       @default("editor") // owner, admin, editor, viewer
+  canApproveProd Boolean      @default(false)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+model Project {
+  id                 String              @id @default(cuid())
+  name               String
+  domain             String
+  organizationId     String
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  domainVerification DomainVerification?
+  connections        WebsiteConnection[]
+  audits             AuditJob[]
+  repairPlans        RepairPlan[]
+  schedules          Schedule[]
+}
+
+model DomainVerification {
+  id           String    @id @default(cuid())
+  projectId    String    @unique
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  method       String    // dns_txt, meta_tag, file_upload
+  token        String
+  verified     Boolean   @default(false)
+  verifiedAt   DateTime?
+  checkedAt    DateTime?
+}
+
+model WebsiteConnection {
+  id              String       @id @default(cuid())
+  projectId       String
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  adapterType     String       // static_sftp, wordpress_rest, git_pr, custom_php
+  environment     String       @default("production") // production, staging
+  publicUrl       String
+  host            String?
+  port            Int?
+  allowedRoot     String       @default("/")
+  approvedOpsJson String       @default("[\"update_meta\",\"add_schema\",\"update_headings\",\"upload_llms_txt\"]")
+  credentialRefId String       // References encrypted vault ID, never raw secrets
+  status          String       @default("active") // active, testing, failed, revoked
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  repairPlans     RepairPlan[]
+}
+
+model AuditJob {
+  id              String       @id @default(cuid())
+  projectId       String?
+  project         Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  targetUrl       String
+  status          String       @default("queued") // queued, crawling, analyzing, completed, failed, canceled
+  trigger         String       @default("manual") // manual, schedule, guest, post_repair_verification
+  scopeConfigJson String       // maxPages, maxDepth, includePaths, excludePaths, renderJs, userAgent
+  
+  pagesCrawled    Int          @default(0)
+  pagesDiscovered Int          @default(0)
+  issuesCount     Int          @default(0)
+  healthScore     Float        @default(0)
+  coveragePct     Float        @default(0)
+
+  categoryScoresJson String?   // { crawlability: 92, onPage: 85, images: 78, schema: 60, perf: 88, aeoGeo: 70, quality: 95 }
+  summaryJson     String?      // Quick high level highlights
+  errorMessage    String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+
+  pages           PageCrawl[]
+  findings        RuleFinding[]
+  repairPlans     RepairPlan[]
+}
+
+model PageCrawl {
+  id              String       @id @default(cuid())
+  auditJobId      String
+  auditJob        AuditJob     @relation(fields: [auditJobId], references: [id], onDelete: Cascade)
+  url             String
+  depth           Int          @default(0)
+  httpStatus      Int          @default(200)
+  responseTimeMs  Int          @default(0)
+  mimeType        String?      @default("text/html")
+  title           String?
+  metaDescription String?
+  canonicalUrl    String?
+  contentHash     String?      // SHA256 of main content body
+  rawHtmlSnapshotPath String?
+  domStatsJson    String?      // { wordCount, h1Count, h2Count, imageCount, internalLinksCount, externalLinksCount }
+  isOrphan        Boolean      @default(false)
+  orphanEvidence  String?
+  crawledAt       DateTime     @default(now())
+
+  findings        RuleFinding[]
+  outboundLinks   LinkEdge[]   @relation("FromPage")
+  inboundLinks    LinkEdge[]   @relation("ToPage")
+}
+
+model LinkEdge {
+  id          String    @id @default(cuid())
+  fromPageId  String
+  fromPage    PageCrawl @relation("FromPage", fields: [fromPageId], references: [id], onDelete: Cascade)
+  toPageId    String?
+  toPage      PageCrawl? @relation("ToPage", fields: [toPageId], references: [id], onDelete: SetNull)
+  targetUrl   String
+  anchorText  String?
+  isInternal  Boolean   @default(true)
+  isNoFollow  Boolean   @default(false)
+}
+
+model RuleFinding {
+  id              String          @id @default(cuid())
+  auditJobId      String
+  auditJob        AuditJob        @relation(fields: [auditJobId], references: [id], onDelete: Cascade)
+  pageCrawlId     String?
+  pageCrawl       PageCrawl?      @relation(fields: [pageCrawlId], references: [id], onDelete: Cascade)
+  ruleId          String          // e.g. "ONPAGE_MISSING_TITLE", "AEO_NO_SUMMARY"
+  ruleVersion     String          @default("1.0")
+  category        String          // crawlability, onpage, images, structured_data, performance, aeo_geo, quality
+  severity        String          // critical, high, medium, low, info
+  confidence      Float           @default(1.0)
+  affectedUrl     String
+  templateGroupId String?         // To group repeated header/footer layout issues
+  
+  title           String
+  explanation     String
+  observedValue   String?
+  expectedValue   String?
+  evidenceSnippet String?
+  remediation     String
+  
+  repairSupported Boolean         @default(false)
+  repairRisk      String          @default("low") // low, medium, high
+  workflowStatus  String          @default("open") // open, ignored, accepted, in_repair, fixed, regressed
+  ruleState       String          @default("failed") // passed, failed, warning, not_applicable, blocked
+  detectedAt      DateTime        @default(now())
+
+  patchItems      RepairPatchItem[]
+}
+
+model RepairPlan {
+  id               String            @id @default(cuid())
+  projectId        String
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  connectionId     String?
+  connection       WebsiteConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  auditJobId       String?
+  auditJob         AuditJob?         @relation(fields: [auditJobId], references: [id], onDelete: SetNull)
+  
+  title            String
+  summary          String
+  status           String            @default("draft") // draft, prepared, validated, awaiting_approval, approved, applying, verifying, completed, rolled_back, failed, conflict
+  planHash         String            // Immutable SHA-256 of planned patches to bind approval
+  estimatedRisk    String            @default("low") // low, medium, high
+  blastRadiusPages Int               @default(1)
+  
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  patches          RepairPatchItem[]
+  approvals        Approval[]
+  backups          BackupSnapshot[]
+  executions       RepairExecution[]
+}
+
+model RepairPatchItem {
+  id              String        @id @default(cuid())
+  repairPlanId    String
+  repairPlan      RepairPlan    @relation(fields: [repairPlanId], references: [id], onDelete: Cascade)
+  findingId       String?
+  finding         RuleFinding?  @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  
+  targetResource  String        // File path or DB post ID e.g. "index.html" or "post:42"
+  operation       String        // replace_meta, inject_schema, rewrite_heading, create_file
+  beforeContent   String
+  afterContent    String
+  unifiedDiff     String
+  originalSha256  String        // For pre-flight collision / race-condition check
+  explanation     String
+}
+
+model Approval {
+  id            String     @id @default(cuid())
+  repairPlanId  String
+  repairPlan    RepairPlan @relation(fields: [repairPlanId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boundPlanHash String     // Must match repairPlan.planHash
+  environment   String     // staging, production
+  comment       String?
+  approvedAt    DateTime   @default(now())
+}
+
+model BackupSnapshot {
+  id               String            @id @default(cuid())
+  repairPlanId     String
+  repairPlan       RepairPlan        @relation(fields: [repairPlanId], references: [id], onDelete: Cascade)
+  manifestJson     String            // List of resources and before-hashes
+  storagePath      String            // Encrypted snapshot archive path
+  checksumSha256   String
+  verifiedIntegrity Boolean          @default(false)
+  createdAt        DateTime          @default(now())
+  executions       RepairExecution[]
+  rollbacks        RollbackRecord[]
+}
+
+model RepairExecution {
+  id               String            @id @default(cuid())
+  repairPlanId     String
+  repairPlan       RepairPlan        @relation(fields: [repairPlanId], references: [id], onDelete: Cascade)
+  backupSnapshotId String
+  backupSnapshot   BackupSnapshot    @relation(fields: [backupSnapshotId], references: [id], onDelete: Restrict)
+  status           String            @default("running") // running, success, failed, aborted
+  appliedPatchesCount Int            @default(0)
+  executionLog     String?
+  startedAt        DateTime          @default(now())
+  completedAt      DateTime?
+
+  verifications    VerificationResult[]
+  rollbackRecord   RollbackRecord?
+}
+
+model VerificationResult {
+  id                String          @id @default(cuid())
+  repairExecutionId String
+  repairExecution   RepairExecution @relation(fields: [repairExecutionId], references: [id], onDelete: Cascade)
+  targetUrl         String
+  testedRuleId      String
+  passed            Boolean
+  httpStatus        Int             @default(200)
+  regressionDetected Boolean        @default(false)
+  detailsJson       String?
+  verifiedAt        DateTime        @default(now())
+}
+
+model RollbackRecord {
+  id                String          @id @default(cuid())
+  repairExecutionId String          @unique
+  repairExecution   RepairExecution @relation(fields: [repairExecutionId], references: [id], onDelete: Cascade)
+  backupSnapshotId  String
+  backupSnapshot    BackupSnapshot  @relation(fields: [backupSnapshotId], references: [id], onDelete: Restrict)
+  status            String          @default("completed") // completed, failed, partial
+  restoredCount     Int             @default(0)
+  rollbackLog       String?
+  rolledBackAt      DateTime        @default(now())
+}
+
+model Schedule {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cron        String   // e.g. "0 0 * * 1"
+  enabled     Boolean  @default(true)
+  notifyEmail String?
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+}
+
+model AuditEvent {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action         String        // "AUDIT_STARTED", "PLAN_APPROVED", "REPAIR_APPLIED", "ROLLBACK_EXECUTED"
+  resourceType   String
+  resourceId     String
+  metadataJson   String?
+  ipAddress      String?
+  createdAt      DateTime      @default(now())
+}
