@@ -25,10 +25,19 @@ export async function GET(
       return NextResponse.json({ error: "Audit not found" }, { status: 404 });
     }
 
-    const categoryScores = audit.categoryScoresJson
-      ? JSON.parse(audit.categoryScoresJson)
-      : null;
-    const summary = audit.summaryJson ? JSON.parse(audit.summaryJson) : null;
+    let categoryScores = null;
+    try {
+      if (audit.categoryScoresJson) categoryScores = JSON.parse(audit.categoryScoresJson);
+    } catch {
+      categoryScores = null;
+    }
+
+    let summary = null;
+    try {
+      if (audit.summaryJson) summary = JSON.parse(audit.summaryJson);
+    } catch {
+      summary = null;
+    }
 
     return NextResponse.json({
       audit: {

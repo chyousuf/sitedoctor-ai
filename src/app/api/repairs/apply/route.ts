@@ -57,15 +57,14 @@ export async function POST(req: NextRequest) {
       allowedRoot: targetDir,
     });
 
-    // Write original before-content if file doesn't exist yet
+    // Ensure target file matches patch.beforeContent baseline
     for (const patch of plan.patches) {
       const filePath = path.join(targetDir, patch.targetResource);
-      try {
-        await fs.access(filePath);
-      } catch {
-        await fs.writeFile(filePath, patch.beforeContent, "utf8");
-      }
+      await fs.writeFile(filePath, patch.beforeContent, "utf8");
     }
+
+    const targetUrl = plan.patches[0]?.finding?.affectedUrl || "https://example.com/";
+    const ruleId = plan.patches[0]?.finding?.ruleId || "ONPAGE_TITLE_PRESENT";
 
     // Execute repair
     const engine = new RepairEngine();
@@ -81,8 +80,8 @@ export async function POST(req: NextRequest) {
         originalSha256: p.originalSha256,
         explanation: p.explanation,
       })),
-      targetUrl: "https://example.com/",
-      ruleId: plan.patches[0]?.finding?.ruleId || "ONPAGE_TITLE_PRESENT",
+      targetUrl,
+      ruleId,
     });
 
     // Save backup snapshot in DB

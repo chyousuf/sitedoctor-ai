@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DiffViewer } from "./DiffViewer";
 import {
   X,
@@ -32,9 +32,12 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
   const [isRollingBack, setIsRollingBack] = useState(false);
 
   // Generate proposal on mount
-  useState(() => {
+  useEffect(() => {
+    let isMounted = true;
     async function loadProposal() {
       try {
+        setStage("generating");
+        setErrorMessage(null);
         const res = await fetch("/api/repairs/propose", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -50,18 +53,23 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
         }
 
         const data = await res.json();
+        if (!isMounted) return;
         setProposalData(data);
         setPlanId(data.plan.id);
         setPlanHash(data.plan.planHash);
         setStage("review");
       } catch (err: any) {
+        if (!isMounted) return;
         setErrorMessage(err.message);
         setStage("error");
       }
     }
 
     loadProposal();
-  });
+    return () => {
+      isMounted = false;
+    };
+  }, [finding.id]);
 
   const handleApproveAndApply = async () => {
     if (!planId || !planHash) return;

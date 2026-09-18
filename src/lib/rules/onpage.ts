@@ -139,7 +139,8 @@ export function evaluateOnPageRules(ctx: RuleEvaluationContext): RuleResult[] {
   }
 
   // 3. Heading Structure (H1)
-  const h1Count = headings.h1.length;
+  const h1List = headings?.h1 || [];
+  const h1Count = h1List.length;
   if (h1Count === 0) {
     results.push({
       ruleId: "ONPAGE_H1_PRESENT",
@@ -167,8 +168,8 @@ export function evaluateOnPageRules(ctx: RuleEvaluationContext): RuleResult[] {
       confidence: 1.0,
       affectedUrl: ctx.pageUrl,
       title: "Primary Heading (H1) Present",
-      explanation: `Page has ${h1Count} H1 heading(s): "${headings.h1[0]}"`,
-      observedValue: headings.h1.join("; "),
+      explanation: `Page has ${h1Count} H1 heading(s): "${h1List[0]}"`,
+      observedValue: h1List.join("; "),
       expectedValue: "Descriptive H1 heading",
       remediation: "None required.",
       repairSupported: false,

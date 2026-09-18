@@ -10,8 +10,10 @@ export function evaluateAeoGeoRules(ctx: RuleEvaluationContext): RuleResult[] {
   };
 
   // 1. AEO Direct Answer & Summary Structure (Heuristic)
-  const hasSubheadings = headings.h2.length > 0 || headings.h3.length > 0;
-  const hasQuestionHeadings = [...headings.h2, ...headings.h3].some((h) =>
+  const h2List = headings?.h2 || [];
+  const h3List = headings?.h3 || [];
+  const hasSubheadings = h2List.length > 0 || h3List.length > 0;
+  const hasQuestionHeadings = [...h2List, ...h3List].some((h) =>
     /\b(what|how|why|when|where|which|who|can|is|are|best)\b/i.test(h)
   );
 

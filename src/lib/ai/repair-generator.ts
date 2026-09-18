@@ -14,6 +14,7 @@ export interface GeneratedRepairPlanProposal {
   proposal: AiRepairProposal;
   metadata: AiModelMetadata;
   fullUnifiedDiff: string;
+  simulatedAfterContent: string;
 }
 
 export class AiRepairGenerator {
@@ -117,6 +118,7 @@ Respond with JSON adhering to this schema:
       proposal,
       metadata,
       fullUnifiedDiff,
+      simulatedAfterContent,
     };
   }
 }

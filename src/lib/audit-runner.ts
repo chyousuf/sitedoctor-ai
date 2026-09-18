@@ -60,9 +60,9 @@ export async function runAuditPipeline(input: StartAuditInput): Promise<string> 
           contentHash: page.contentHash,
           domStatsJson: JSON.stringify({
             wordCount: page.data?.wordCount || 0,
-            headingsCount: (page.data?.headings.h1.length || 0) + (page.data?.headings.h2.length || 0),
-            imagesCount: page.data?.images.length || 0,
-            linksCount: page.data?.links.length || 0,
+            headingsCount: (page.data?.headings?.h1?.length || 0) + (page.data?.headings?.h2?.length || 0),
+            imagesCount: page.data?.images?.length || 0,
+            linksCount: page.data?.links?.length || 0,
           }),
         },
       });

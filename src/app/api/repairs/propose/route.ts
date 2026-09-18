@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 </html>`;
 
     const generator = new AiRepairGenerator();
-    const { proposal, metadata, fullUnifiedDiff } = await generator.generateProposal({
+    const { proposal, metadata, fullUnifiedDiff, simulatedAfterContent } = await generator.generateProposal({
       finding,
       resourceContent: sampleContent,
       resourceIdentifier: targetResource,
@@ -51,36 +51,46 @@ export async function POST(req: NextRequest) {
     const patchPayloads = proposal.patches.map((p) => ({
       targetResource: p.targetResource,
       operation: p.operation,
-      beforeContent: p.beforeSnippet,
-      afterContent: p.afterSnippet,
+      beforeContent: sampleContent,
+      afterContent: simulatedAfterContent,
       originalSha256,
       explanation: p.explanation,
     }));
 
     const planHash = computeImmutablePlanHash(patchPayloads);
 
-    // Get or create dummy project if needed
-    let project = await db.project.findFirst();
-    if (!project) {
-      let org = await db.organization.findFirst();
-      if (!org) {
-        org = await db.organization.create({
-          data: { name: "Default Org", slug: "default-org" },
+    // Get or create project if needed
+    let projectId = finding.auditJob?.projectId;
+    if (!projectId) {
+      let project = await db.project.findFirst();
+      if (!project) {
+        let org = await db.organization.findFirst();
+        if (!org) {
+          org = await db.organization.create({
+            data: { name: "Default Org", slug: "default-org" },
+          });
+        }
+        let domain = "example.com";
+        try {
+          domain = new URL(finding.affectedUrl).hostname;
+        } catch {
+          domain = "example.com";
+        }
+        project = await db.project.create({
+          data: {
+            name: "Default Project",
+            domain,
+            organizationId: org.id,
+          },
         });
       }
-      project = await db.project.create({
-        data: {
-          name: "Default Project",
-          domain: new URL(finding.affectedUrl).hostname,
-          organizationId: org.id,
-        },
-      });
+      projectId = project.id;
     }
 
     // Persist repair plan in DB
     const repairPlan = await db.repairPlan.create({
       data: {
-        projectId: project.id,
+        projectId,
         auditJobId: finding.auditJobId,
         title: proposal.title,
         summary: proposal.explanation,
