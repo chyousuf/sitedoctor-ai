@@ -43,14 +43,85 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
   const [isVerifyingLive, setIsVerifyingLive] = useState(false);
   const [liveVerificationResult, setLiveVerificationResult] = useState<any>(null);
 
-  // FTP credentials state
+  // FTP credentials state with browser persistence
   const [ftpHost, setFtpHost] = useState("");
   const [ftpPort, setFtpPort] = useState("21");
   const [ftpUser, setFtpUser] = useState("");
   const [ftpPassword, setFtpPassword] = useState("");
   const [ftpRemoteDir, setFtpRemoteDir] = useState("/htdocs");
+  const [hasSavedCredentials, setHasSavedCredentials] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Auto-load saved FTP credentials for this domain or default from localStorage
+  useEffect(() => {
+    try {
+      let domain = "";
+      try {
+        domain = new URL(finding.affectedUrl).hostname;
+      } catch {}
+
+      const saved =
+        (domain ? localStorage.getItem(`sitedoctor_ftp_${domain}`) : null) ||
+        localStorage.getItem("sitedoctor_ftp_default");
+
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.host) setFtpHost(parsed.host);
+        if (parsed.port) setFtpPort(parsed.port);
+        if (parsed.username) setFtpUser(parsed.username);
+        if (parsed.password) setFtpPassword(parsed.password);
+        if (parsed.remoteDir) setFtpRemoteDir(parsed.remoteDir);
+        setHasSavedCredentials(true);
+      }
+    } catch {}
+  }, [finding.affectedUrl]);
+
+  // Helper to persist credentials into localStorage
+  const saveCredentials = (overrides: Partial<{ host: string; port: string; username: string; password: string; remoteDir: string }> = {}) => {
+    try {
+      let domain = "";
+      try {
+        domain = new URL(finding.affectedUrl).hostname;
+      } catch {}
+
+      const payload = {
+        host: overrides.host !== undefined ? overrides.host : ftpHost,
+        port: overrides.port !== undefined ? overrides.port : ftpPort,
+        username: overrides.username !== undefined ? overrides.username : ftpUser,
+        password: overrides.password !== undefined ? overrides.password : ftpPassword,
+        remoteDir: overrides.remoteDir !== undefined ? overrides.remoteDir : ftpRemoteDir,
+      };
+
+      const json = JSON.stringify(payload);
+      if (domain) {
+        localStorage.setItem(`sitedoctor_ftp_${domain}`, json);
+      }
+      localStorage.setItem("sitedoctor_ftp_default", json);
+      setHasSavedCredentials(true);
+    } catch {}
+  };
+
+  const handleClearSavedCredentials = () => {
+    try {
+      let domain = "";
+      try {
+        domain = new URL(finding.affectedUrl).hostname;
+      } catch {}
+
+      if (domain) {
+        localStorage.removeItem(`sitedoctor_ftp_${domain}`);
+      }
+      localStorage.removeItem("sitedoctor_ftp_default");
+      setFtpHost("");
+      setFtpPort("21");
+      setFtpUser("");
+      setFtpPassword("");
+      setFtpRemoteDir("/htdocs");
+      setHasSavedCredentials(false);
+      setConnectionTestResult(null);
+    } catch {}
+  };
 
   // Generate proposal on mount
   useEffect(() => {
@@ -138,6 +209,7 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
 
   // Test FTP connection before applying
   const handleTestConnection = async () => {
+    saveCredentials();
     try {
       setIsTestingConnection(true);
       setConnectionTestResult(null);
@@ -170,6 +242,7 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
   // Automated Apply (FTP or Local Sandbox)
   const handleApproveAndApply = async (useFtp = false) => {
     if (!planId || !planHash) return;
+    if (useFtp) saveCredentials();
 
     try {
       setStage("approving");
@@ -474,14 +547,29 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                 {/* Tab 2: FTP / SFTP Push */}
                 {activeTab === "ftp" && (
                   <div className="space-y-4 bg-slate-950/40 border border-slate-800/80 rounded-xl p-4">
-                    <div>
-                      <h4 className="font-bold text-sm text-white flex items-center gap-2">
-                        <Server className="h-4 w-4 text-brand-400" />
-                        <span>Push Directly to Web Server via FTP / FTPS</span>
-                      </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        SiteDoctor AI will automatically connect, download an encrypted pre-repair backup snapshot, and upload the repaired file directly to your server.
-                      </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                          <Server className="h-4 w-4 text-brand-400" />
+                          <span>Push Directly to Web Server via FTP / FTPS</span>
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          SiteDoctor AI will automatically connect, download an encrypted pre-repair backup snapshot, and upload the repaired file directly to your server.
+                        </p>
+                      </div>
+                      {hasSavedCredentials && (
+                        <div className="flex items-center gap-1.5 self-start sm:self-auto bg-emerald-950/60 border border-emerald-800 text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-mono">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          <span>Saved on browser</span>
+                          <button
+                            type="button"
+                            onClick={handleClearSavedCredentials}
+                            className="text-slate-400 hover:text-rose-400 underline ml-1 cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -491,7 +579,10 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                           type="text"
                           placeholder="ftpupload.net or ftp.mysite.com"
                           value={ftpHost}
-                          onChange={(e) => setFtpHost(e.target.value)}
+                          onChange={(e) => {
+                            setFtpHost(e.target.value);
+                            saveCredentials({ host: e.target.value });
+                          }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         />
                       </div>
@@ -501,7 +592,10 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                           type="number"
                           placeholder="21"
                           value={ftpPort}
-                          onChange={(e) => setFtpPort(e.target.value)}
+                          onChange={(e) => {
+                            setFtpPort(e.target.value);
+                            saveCredentials({ port: e.target.value });
+                          }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         />
                       </div>
@@ -511,7 +605,10 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                           type="text"
                           placeholder="epiz_34241944"
                           value={ftpUser}
-                          onChange={(e) => setFtpUser(e.target.value)}
+                          onChange={(e) => {
+                            setFtpUser(e.target.value);
+                            saveCredentials({ username: e.target.value });
+                          }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         />
                       </div>
@@ -521,7 +618,10 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                           type="password"
                           placeholder="••••••••••••"
                           value={ftpPassword}
-                          onChange={(e) => setFtpPassword(e.target.value)}
+                          onChange={(e) => {
+                            setFtpPassword(e.target.value);
+                            saveCredentials({ password: e.target.value });
+                          }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         />
                       </div>
@@ -531,7 +631,10 @@ export function RepairModal({ finding, onClose, onRepairCompleted }: RepairModal
                           type="text"
                           placeholder="/htdocs or /public_html"
                           value={ftpRemoteDir}
-                          onChange={(e) => setFtpRemoteDir(e.target.value)}
+                          onChange={(e) => {
+                            setFtpRemoteDir(e.target.value);
+                            saveCredentials({ remoteDir: e.target.value });
+                          }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         />
                       </div>
